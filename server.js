@@ -54,6 +54,10 @@ Usa solo doppi apici per stringhe e proprietà.
 Genera esattamente 10 oggetti.
 [{"name":"Nome breve","description":"2 righe perché è perfetto","price":"€XX-YY","category":"tecnologia|sport|cucina|libri|viaggi|natura|arte|musica|benessere|casa","searchQuery":"query Amazon in italiano"}]`;
 
+    let data;
+
+for (let i = 0; i < 3; i++) {
+  try {
     const geminiResponse = await fetch(GEMINI_URL, {
       method: "POST",
       headers: {
@@ -75,7 +79,38 @@ Genera esattamente 10 oggetti.
       })
     });
 
-    const data = await geminiResponse.json();
+    data = await geminiResponse.json();
+
+    if (data.error) {
+      const msg = data.error.message || "";
+
+      if (
+        msg.includes("high demand") ||
+        msg.includes("RESOURCE_EXHAUSTED") ||
+        msg.includes("429")
+      ) {
+        throw new Error(msg);
+      }
+
+      return res.status(500).json({
+        error: msg
+      });
+    }
+
+    break; // risposta valida
+  } catch (e) {
+    console.error(`Tentativo Gemini ${i + 1} fallito:`, e.message);
+
+    if (i === 2) {
+      return res.status(503).json({
+        error:
+          "Gemini è momentaneamente occupato. Attendi qualche secondo e riprova."
+      });
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+}
 
     if (data.error) {
       return res.status(500).json({
