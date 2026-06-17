@@ -68,7 +68,7 @@ app.post("/generate-gifts", async (req, res) => {
 
     if (cache.has(cacheKey)) {
       console.log("⚡ Risposta servita dalla cache");
-      return res.json({ gifts: cache.get(cacheKey) });
+      return res.json({ gifts: cache.get(cacheKey), fromCache: true });
     }
 
     const {
@@ -100,6 +100,7 @@ Genera esattamente 10 oggetti.
 [{"name":"Nome breve","description":"2 righe perché è perfetto","price":"€XX-YY","category":"tecnologia|sport|cucina|libri|viaggi|natura|arte|musica|benessere|casa","searchQuery":"query Amazon in italiano"}]`;
 
     let data;
+    let lastRetrySeconds = 16;
 
     for (let i = 0; i < 3; i++) {
       try {
@@ -128,6 +129,7 @@ Genera esattamente 10 oggetti.
           const msg = data.error.message || "Errore Gemini";
 
           if (isTemporaryGeminiError(msg)) {
+            lastRetrySeconds = getRetrySeconds(msg);
             throw new Error(msg);
           }
 
@@ -141,17 +143,18 @@ Genera esattamente 10 oggetti.
       } catch (e) {
         console.error(`Tentativo Gemini ${i + 1} fallito:`, e.message);
 
+        lastRetrySeconds = Math.max(getRetrySeconds(e.message), 16);
+
         if (i === 2) {
           return res.status(503).json({
             error:
-              "Gemini è momentaneamente occupato o hai raggiunto il limite temporaneo di richieste. Attendi qualche secondo e riprova."
+              "Gemini è momentaneamente occupato o hai raggiunto il limite temporaneo di richieste. Attendi qualche secondo e riprova.",
+            retryAfter: lastRetrySeconds
           });
         }
 
-        const retrySeconds = Math.max(getRetrySeconds(e.message), (i + 1) * 5);
-        console.log(`Attendo ${retrySeconds} secondi prima di riprovare...`);
-
-        await wait(retrySeconds * 1000);
+        console.log(`Attendo ${lastRetrySeconds} secondi prima di riprovare...`);
+        await wait(lastRetrySeconds * 1000);
       }
     }
 
@@ -197,14 +200,10 @@ Genera esattamente 10 oggetti.
       });
     }
 
-    if (gifts.length !== 10) {
-      console.warn(`Gemini ha generato ${gifts.length} regali invece di 10`);
-    }
-
     cache.set(cacheKey, gifts);
     console.log("💾 Risposta salvata in cache");
 
-    res.json({ gifts });
+    res.json({ gifts, fromCache: false });
 
   } catch (e) {
     console.error(e);
