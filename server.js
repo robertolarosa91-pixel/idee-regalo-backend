@@ -14,6 +14,32 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL =
   `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function getRetrySeconds(message) {
+  const match = message.match(/retry in ([\d.]+)s/i);
+  if (match) {
+    return Math.ceil(Number(match[1]));
+  }
+
+  return 16;
+}
+
+function isTemporaryGeminiError(message) {
+  const msg = (message || "").toLowerCase();
+
+  return (
+    msg.includes("high demand") ||
+    msg.includes("resource_exhausted") ||
+    msg.includes("429") ||
+    msg.includes("quota") ||
+    msg.includes("rate") ||
+    msg.includes("retry")
+  );
+}
+
 app.get("/", (req, res) => {
   res.json({ ok: true, message: "Idee Regalo backend attivo" });
 });
@@ -56,65 +82,65 @@ Genera esattamente 10 oggetti.
 
     let data;
 
-for (let i = 0; i < 3; i++) {
-  try {
-    const geminiResponse = await fetch(GEMINI_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: prompt }
-            ]
+    for (let i = 0; i < 3; i++) {
+      try {
+        const geminiResponse = await fetch(GEMINI_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { text: prompt }
+                ]
+              }
+            ],
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 4096,
+              responseMimeType: "application/json"
+            }
+          })
+        });
+
+        data = await geminiResponse.json();
+
+        if (data.error) {
+          const msg = data.error.message || "Errore Gemini";
+
+          if (isTemporaryGeminiError(msg)) {
+            throw new Error(msg);
           }
-        ],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 4096,
-          responseMimeType: "application/json"
+
+          return res.status(500).json({
+            error: msg
+          });
         }
-      })
-    });
 
-    data = await geminiResponse.json();
+        break;
 
-    if (data.error) {
-      const msg = data.error.message || "";
+      } catch (e) {
+        console.error(`Tentativo Gemini ${i + 1} fallito:`, e.message);
 
-      if (
-        msg.includes("high demand") ||
-        msg.includes("RESOURCE_EXHAUSTED") ||
-        msg.includes("429")
-      ) {
-        throw new Error(msg);
+        if (i === 2) {
+          return res.status(503).json({
+            error:
+              "Gemini è momentaneamente occupato o hai raggiunto il limite temporaneo di richieste. Attendi qualche secondo e riprova."
+          });
+        }
+
+        const retrySeconds = getRetrySeconds(e.message);
+        console.log(`Attendo ${retrySeconds} secondi prima di riprovare...`);
+
+        await wait(retrySeconds * 1000);
       }
-
-      return res.status(500).json({
-        error: msg
-      });
     }
 
-    break; // risposta valida
-  } catch (e) {
-    console.error(`Tentativo Gemini ${i + 1} fallito:`, e.message);
-
-    if (i === 2) {
-      return res.status(503).json({
-        error:
-          "Gemini è momentaneamente occupato. Attendi qualche secondo e riprova."
-      });
-    }
-
-    await new Promise(resolve => setTimeout(resolve, 2000));
-  }
-}
-
-    if (data.error) {
+    if (!data) {
       return res.status(500).json({
-        error: data.error.message
+        error: "Nessuna risposta ricevuta da Gemini"
       });
     }
 
@@ -135,7 +161,18 @@ for (let i = 0; i < 3; i++) {
       });
     }
 
-    const gifts = JSON.parse(cleaned.slice(start, end + 1));
+    let gifts;
+
+    try {
+      gifts = JSON.parse(cleaned.slice(start, end + 1));
+    } catch (e) {
+      console.error("Errore parsing JSON Gemini:", e.message);
+
+      return res.status(500).json({
+        error: "Risposta Gemini non valida. Riprova tra qualche secondo.",
+        raw: cleaned.slice(0, 200)
+      });
+    }
 
     if (!Array.isArray(gifts)) {
       return res.status(500).json({
