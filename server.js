@@ -12,23 +12,35 @@ app.use(express.json({ limit: "1mb" }));
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 const GEMINI_URL =
-  `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+const cache = new Map();
 
 function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function getRetrySeconds(message) {
-  const match = message.match(/retry in ([\d.]+)s/i);
-  if (match) {
-    return Math.ceil(Number(match[1]));
-  }
+function buildCacheKey(data) {
+  return JSON.stringify({
+    occasion: data.occasion,
+    customOccasion: data.customOccasion,
+    relationship: data.relationship,
+    age: data.age,
+    personality: data.personality,
+    hobbies: data.hobbies,
+    giftType: data.giftType,
+    budget: data.budget
+  });
+}
 
+function getRetrySeconds(message) {
+  const match = String(message || "").match(/retry in ([\d.]+)s/i);
+  if (match) return Math.ceil(Number(match[1]));
   return 16;
 }
 
 function isTemporaryGeminiError(message) {
-  const msg = (message || "").toLowerCase();
+  const msg = String(message || "").toLowerCase();
 
   return (
     msg.includes("high demand") ||
@@ -50,6 +62,13 @@ app.post("/generate-gifts", async (req, res) => {
       return res.status(500).json({
         error: "GEMINI_API_KEY non configurata sul server"
       });
+    }
+
+    const cacheKey = buildCacheKey(req.body);
+
+    if (cache.has(cacheKey)) {
+      console.log("⚡ Risposta servita dalla cache");
+      return res.json({ gifts: cache.get(cacheKey) });
     }
 
     const {
@@ -92,9 +111,7 @@ Genera esattamente 10 oggetti.
           body: JSON.stringify({
             contents: [
               {
-                parts: [
-                  { text: prompt }
-                ]
+                parts: [{ text: prompt }]
               }
             ],
             generationConfig: {
@@ -131,7 +148,7 @@ Genera esattamente 10 oggetti.
           });
         }
 
-        const retrySeconds = getRetrySeconds(e.message);
+        const retrySeconds = Math.max(getRetrySeconds(e.message), (i + 1) * 5);
         console.log(`Attendo ${retrySeconds} secondi prima di riprovare...`);
 
         await wait(retrySeconds * 1000);
@@ -146,7 +163,7 @@ Genera esattamente 10 oggetti.
 
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-    let cleaned = text
+    const cleaned = text
       .replace(/```json/gi, "")
       .replace(/```/g, "")
       .trim();
@@ -180,10 +197,18 @@ Genera esattamente 10 oggetti.
       });
     }
 
+    if (gifts.length !== 10) {
+      console.warn(`Gemini ha generato ${gifts.length} regali invece di 10`);
+    }
+
+    cache.set(cacheKey, gifts);
+    console.log("💾 Risposta salvata in cache");
+
     res.json({ gifts });
 
   } catch (e) {
     console.error(e);
+
     res.status(500).json({
       error: e.message || "Errore backend"
     });
