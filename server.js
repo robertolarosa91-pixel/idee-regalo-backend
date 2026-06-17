@@ -11,8 +11,10 @@ app.use(express.json({ limit: "1mb" }));
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
+const GEMINI_MODEL = "gemini-2.5-flash";
+
 const GEMINI_URL =
-  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+  `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
 const cache = new Map();
 
@@ -48,12 +50,63 @@ function isTemporaryGeminiError(message) {
     msg.includes("429") ||
     msg.includes("quota") ||
     msg.includes("rate") ||
-    msg.includes("retry")
+    msg.includes("retry") ||
+    msg.includes("temporarily") ||
+    msg.includes("unavailable")
   );
 }
 
+function cleanGeminiText(text) {
+  return String(text || "")
+    .replace(/```json/gi, "")
+    .replace(/```/g, "")
+    .replace(/^\s*json\s*/i, "")
+    .trim();
+}
+
+function extractJsonArray(text) {
+  const cleaned = cleanGeminiText(text);
+
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed)) return parsed;
+  } catch {}
+
+  const start = cleaned.indexOf("[");
+  const end = cleaned.lastIndexOf("]");
+
+  if (start === -1 || end === -1 || end <= start) {
+    throw new Error("Risposta Gemini non valida");
+  }
+
+  const jsonText = cleaned.slice(start, end + 1);
+  return JSON.parse(jsonText);
+}
+
+function normalizeGift(gift, index) {
+  return {
+    name: String(gift.name || `Idea regalo ${index + 1}`),
+    description: String(gift.description || "Idea regalo personalizzata in base alle preferenze indicate."),
+    price: String(gift.price || "Prezzo variabile"),
+    category: String(gift.category || "varie"),
+    searchQuery: String(gift.searchQuery || gift.name || `regalo ${index + 1}`)
+  };
+}
+
+function validateGifts(gifts) {
+  if (!Array.isArray(gifts)) {
+    throw new Error("La risposta Gemini non è una lista");
+  }
+
+  return gifts.slice(0, 10).map(normalizeGift);
+}
+
 app.get("/", (req, res) => {
-  res.json({ ok: true, message: "Idee Regalo backend attivo" });
+  res.json({
+    ok: true,
+    message: "Idee Regalo backend attivo",
+    model: GEMINI_MODEL
+  });
 });
 
 app.post("/generate-gifts", async (req, res) => {
@@ -68,7 +121,10 @@ app.post("/generate-gifts", async (req, res) => {
 
     if (cache.has(cacheKey)) {
       console.log("⚡ Risposta servita dalla cache");
-      return res.json({ gifts: cache.get(cacheKey), fromCache: true });
+      return res.json({
+        gifts: cache.get(cacheKey),
+        fromCache: true
+      });
     }
 
     const {
@@ -82,22 +138,44 @@ app.post("/generate-gifts", async (req, res) => {
       budget
     } = req.body;
 
-    const prompt = `Sei un esperto di regali personalizzati. Suggerisci 10 idee regalo creative e specifiche per:
-- Occasione: ${occasion === "✨ Altro" ? customOccasion : occasion}
-- Rapporto: ${relationship}
-- Età: ${age} anni
-- Personalità: ${(personality || []).join(", ")}
-- Hobby/interessi: ${hobbies || "non specificati"}
-- Tipo di regalo preferito: ${giftType || "non specificato"}
-- Budget: ${budget}
+    const finalOccasion =
+      occasion === "✨ Altro" ? customOccasion : occasion;
 
-Rispondi esclusivamente con un array JSON valido.
-Il primo carattere della risposta deve essere [
-L'ultimo carattere della risposta deve essere ]
-Non scrivere spiegazioni, titoli, markdown, testo prima o dopo.
-Usa solo doppi apici per stringhe e proprietà.
-Genera esattamente 10 oggetti.
-[{"name":"Nome breve","description":"2 righe perché è perfetto","price":"€XX-YY","category":"tecnologia|sport|cucina|libri|viaggi|natura|arte|musica|benessere|casa","searchQuery":"query Amazon in italiano"}]`;
+    const prompt = `
+Sei un esperto di regali personalizzati.
+
+Genera esattamente 10 idee regalo per questa persona:
+
+Occasione: ${finalOccasion}
+Rapporto: ${relationship}
+Età: ${age} anni
+Personalità: ${(personality || []).join(", ")}
+Hobby/interessi: ${hobbies || "non specificati"}
+Tipo regalo preferito: ${giftType || "non specificato"}
+Budget: ${budget}
+
+REGOLE OBBLIGATORIE:
+- Rispondi SOLO con JSON valido.
+- Nessun markdown.
+- Nessuna spiegazione.
+- Nessun testo prima o dopo.
+- Il primo carattere deve essere [
+- L'ultimo carattere deve essere ]
+- Usa solo doppi apici.
+- Ogni oggetto deve avere: name, description, price, category, searchQuery.
+- searchQuery deve essere una ricerca Amazon in italiano.
+
+Formato esatto:
+[
+  {
+    "name": "Nome breve",
+    "description": "Descrizione breve del perché è adatto",
+    "price": "€XX-YY",
+    "category": "tecnologia",
+    "searchQuery": "query Amazon in italiano"
+  }
+]
+`;
 
     let data;
     let lastRetrySeconds = 16;
@@ -116,7 +194,7 @@ Genera esattamente 10 oggetti.
               }
             ],
             generationConfig: {
-              temperature: 0.7,
+              temperature: 0.6,
               maxOutputTokens: 4096,
               responseMimeType: "application/json"
             }
@@ -166,49 +244,36 @@ Genera esattamente 10 oggetti.
 
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-    const cleaned = text
-      .replace(/```json/gi, "")
-      .replace(/```/g, "")
-      .trim();
-
-    const start = cleaned.indexOf("[");
-    const end = cleaned.lastIndexOf("]");
-
-    if (start === -1 || end === -1 || end <= start) {
-      return res.status(500).json({
-        error: "Risposta Gemini non valida",
-        raw: cleaned.slice(0, 200)
-      });
-    }
+    console.log("========== RISPOSTA GEMINI ==========");
+    console.log(text);
+    console.log("=====================================");
 
     let gifts;
 
     try {
-      gifts = JSON.parse(cleaned.slice(start, end + 1));
+      gifts = extractJsonArray(text);
+      gifts = validateGifts(gifts);
     } catch (e) {
       console.error("Errore parsing JSON Gemini:", e.message);
 
       return res.status(500).json({
-        error: "Risposta Gemini non valida. Riprova tra qualche secondo.",
-        raw: cleaned.slice(0, 200)
-      });
-    }
-
-    if (!Array.isArray(gifts)) {
-      return res.status(500).json({
-        error: "La risposta Gemini non è una lista"
+        error: "Risposta Gemini non valida",
+        raw: cleanGeminiText(text).slice(0, 500)
       });
     }
 
     cache.set(cacheKey, gifts);
     console.log("💾 Risposta salvata in cache");
 
-    res.json({ gifts, fromCache: false });
+    return res.json({
+      gifts,
+      fromCache: false
+    });
 
   } catch (e) {
     console.error(e);
 
-    res.status(500).json({
+    return res.status(500).json({
       error: e.message || "Errore backend"
     });
   }
