@@ -10,7 +10,6 @@ app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-
 const GEMINI_MODEL = "gemini-2.5-flash";
 
 const GEMINI_URL =
@@ -64,13 +63,23 @@ function cleanGeminiText(text) {
     .trim();
 }
 
+function tryParseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 function extractJsonArray(text) {
   const cleaned = cleanGeminiText(text);
 
-  try {
-    const parsed = JSON.parse(cleaned);
-    if (Array.isArray(parsed)) return parsed;
-  } catch {}
+  const direct = tryParseJson(cleaned);
+  if (Array.isArray(direct)) return direct;
+
+  if (direct && Array.isArray(direct.gifts)) return direct.gifts;
+  if (direct && Array.isArray(direct.ideas)) return direct.ideas;
+  if (direct && Array.isArray(direct.regali)) return direct.regali;
 
   const start = cleaned.indexOf("[");
   const end = cleaned.lastIndexOf("]");
@@ -80,25 +89,220 @@ function extractJsonArray(text) {
   }
 
   const jsonText = cleaned.slice(start, end + 1);
-  return JSON.parse(jsonText);
+  const parsed = JSON.parse(jsonText);
+
+  if (!Array.isArray(parsed)) {
+    throw new Error("La risposta Gemini non è una lista");
+  }
+
+  return parsed;
 }
 
-function normalizeGift(gift, index) {
+function normalizeGift(gift, index, fallbackData = {}) {
+  const safeGift = gift && typeof gift === "object" ? gift : {};
+
+  const name = String(
+    safeGift.name ||
+    safeGift.nome ||
+    `Idea regalo ${index + 1}`
+  );
+
+  const description = String(
+    safeGift.description ||
+    safeGift.descrizione ||
+    "Idea regalo personalizzata in base alle preferenze indicate."
+  );
+
+  const price = String(
+    safeGift.price ||
+    safeGift.prezzo ||
+    fallbackData.budget ||
+    "Prezzo variabile"
+  );
+
+  const category = String(
+    safeGift.category ||
+    safeGift.categoria ||
+    "varie"
+  );
+
+  const searchQuery = String(
+    safeGift.searchQuery ||
+    safeGift.query ||
+    safeGift.amazonQuery ||
+    name
+  );
+
   return {
-    name: String(gift.name || `Idea regalo ${index + 1}`),
-    description: String(gift.description || "Idea regalo personalizzata in base alle preferenze indicate."),
-    price: String(gift.price || "Prezzo variabile"),
-    category: String(gift.category || "varie"),
-    searchQuery: String(gift.searchQuery || gift.name || `regalo ${index + 1}`)
+    name,
+    description,
+    price,
+    category,
+    searchQuery
   };
 }
 
-function validateGifts(gifts) {
+function validateGifts(gifts, fallbackData = {}) {
   if (!Array.isArray(gifts)) {
     throw new Error("La risposta Gemini non è una lista");
   }
 
-  return gifts.slice(0, 10).map(normalizeGift);
+  const normalized = gifts
+    .slice(0, 10)
+    .map((gift, index) => normalizeGift(gift, index, fallbackData));
+
+  if (normalized.length === 0) {
+    throw new Error("Lista regali vuota");
+  }
+
+  while (normalized.length < 10) {
+    normalized.push(
+      normalizeGift(
+        {
+          name: `Idea regalo alternativa ${normalized.length + 1}`,
+          description: "Alternativa coerente con il profilo indicato.",
+          price: fallbackData.budget || "Prezzo variabile",
+          category: "varie",
+          searchQuery: `regalo ${fallbackData.relationship || ""} ${fallbackData.hobbies || ""}`.trim()
+        },
+        normalized.length,
+        fallbackData
+      )
+    );
+  }
+
+  return normalized;
+}
+
+function generateFallbackGifts(data) {
+  const {
+    occasion,
+    customOccasion,
+    relationship,
+    age,
+    personality,
+    hobbies,
+    giftType,
+    budget
+  } = data;
+
+  const finalOccasion = occasion === "✨ Altro" ? customOccasion : occasion;
+  const personalityText = Array.isArray(personality) && personality.length
+    ? personality.join(", ")
+    : "personalità non specificata";
+
+  const interestText = hobbies || "interessi generici";
+  const typeText = giftType || "regalo utile e piacevole";
+  const budgetText = budget || "budget variabile";
+
+  const base = [
+    {
+      name: "Kit regalo personalizzato",
+      category: "casa",
+      searchQuery: `kit regalo personalizzato ${interestText}`
+    },
+    {
+      name: "Esperienza da vivere insieme",
+      category: "esperienza",
+      searchQuery: `esperienza regalo ${relationship} ${finalOccasion}`
+    },
+    {
+      name: "Accessorio utile premium",
+      category: "varie",
+      searchQuery: `accessorio utile regalo ${interestText}`
+    },
+    {
+      name: "Set relax e benessere",
+      category: "benessere",
+      searchQuery: `set relax benessere regalo`
+    },
+    {
+      name: "Gadget tecnologico pratico",
+      category: "tecnologia",
+      searchQuery: `gadget tecnologico utile regalo`
+    },
+    {
+      name: "Libro o guida tematica",
+      category: "libri",
+      searchQuery: `libro regalo ${interestText}`
+    },
+    {
+      name: "Oggetto decorativo elegante",
+      category: "casa",
+      searchQuery: `oggetto decorativo elegante regalo`
+    },
+    {
+      name: "Box gourmet selezionato",
+      category: "cucina",
+      searchQuery: `box gourmet regalo`
+    },
+    {
+      name: "Accessorio per hobby",
+      category: "hobby",
+      searchQuery: `accessorio hobby ${interestText} regalo`
+    },
+    {
+      name: "Regalo sorpresa creativo",
+      category: "arte",
+      searchQuery: `regalo creativo originale ${interestText}`
+    }
+  ];
+
+  return base.map((item, index) => ({
+    name: item.name,
+    description:
+      `Adatto per ${finalOccasion || "questa occasione"}: pensato per ${relationship || "questa persona"}, età ${age || "non specificata"}, con profilo ${personalityText}. È un ${typeText} compatibile con ${budgetText}.`,
+    price: budgetText,
+    category: item.category,
+    searchQuery: item.searchQuery
+  }));
+}
+
+async function callGemini(prompt) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000);
+
+  try {
+    const geminiResponse = await fetch(GEMINI_URL, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [{ text: prompt }]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.4,
+          maxOutputTokens: 4096,
+          responseMimeType: "application/json"
+        }
+      })
+    });
+
+    const data = await geminiResponse.json();
+
+    if (!geminiResponse.ok) {
+      const msg =
+        data?.error?.message ||
+        `Errore Gemini HTTP ${geminiResponse.status}`;
+
+      throw new Error(msg);
+    }
+
+    if (data.error) {
+      const msg = data.error.message || "Errore Gemini";
+      throw new Error(msg);
+    }
+
+    return data;
+
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 app.get("/", (req, res) => {
@@ -121,6 +325,7 @@ app.post("/generate-gifts", async (req, res) => {
 
     if (cache.has(cacheKey)) {
       console.log("⚡ Risposta servita dalla cache");
+
       return res.json({
         gifts: cache.get(cacheKey),
         fromCache: true
@@ -142,30 +347,32 @@ app.post("/generate-gifts", async (req, res) => {
       occasion === "✨ Altro" ? customOccasion : occasion;
 
     const prompt = `
-Sei un esperto di regali personalizzati.
+Genera esattamente 10 idee regalo personalizzate.
 
-Genera esattamente 10 idee regalo per questa persona:
-
-Occasione: ${finalOccasion}
-Rapporto: ${relationship}
-Età: ${age} anni
-Personalità: ${(personality || []).join(", ")}
+DATI PERSONA:
+Occasione: ${finalOccasion || "non specificata"}
+Rapporto: ${relationship || "non specificato"}
+Età: ${age || "non specificata"}
+Personalità: ${(personality || []).join(", ") || "non specificata"}
 Hobby/interessi: ${hobbies || "non specificati"}
 Tipo regalo preferito: ${giftType || "non specificato"}
-Budget: ${budget}
+Budget: ${budget || "non specificato"}
 
 REGOLE OBBLIGATORIE:
-- Rispondi SOLO con JSON valido.
-- Nessun markdown.
-- Nessuna spiegazione.
-- Nessun testo prima o dopo.
-- Il primo carattere deve essere [
-- L'ultimo carattere deve essere ]
-- Usa solo doppi apici.
-- Ogni oggetto deve avere: name, description, price, category, searchQuery.
-- searchQuery deve essere una ricerca Amazon in italiano.
+Rispondi SOLO con un array JSON valido.
+Nessun markdown.
+Nessun testo prima.
+Nessun testo dopo.
+Il primo carattere deve essere [
+L'ultimo carattere deve essere ]
+Usa solo doppi apici.
+Genera esattamente 10 oggetti.
+Ogni oggetto deve avere esattamente queste proprietà:
+"name", "description", "price", "category", "searchQuery".
 
-Formato esatto:
+"searchQuery" deve essere una ricerca Amazon in italiano.
+
+ESEMPIO FORMATO:
 [
   {
     "name": "Nome breve",
@@ -175,59 +382,38 @@ Formato esatto:
     "searchQuery": "query Amazon in italiano"
   }
 ]
-`;
+`.trim();
 
-    let data;
+    let data = null;
     let lastRetrySeconds = 16;
 
     for (let i = 0; i < 3; i++) {
       try {
-        const geminiResponse = await fetch(GEMINI_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [{ text: prompt }]
-              }
-            ],
-            generationConfig: {
-              temperature: 0.6,
-              maxOutputTokens: 4096,
-              responseMimeType: "application/json"
-            }
-          })
-        });
-
-        data = await geminiResponse.json();
-
-        if (data.error) {
-          const msg = data.error.message || "Errore Gemini";
-
-          if (isTemporaryGeminiError(msg)) {
-            lastRetrySeconds = getRetrySeconds(msg);
-            throw new Error(msg);
-          }
-
-          return res.status(500).json({
-            error: msg
-          });
-        }
-
+        data = await callGemini(prompt);
         break;
 
       } catch (e) {
-        console.error(`Tentativo Gemini ${i + 1} fallito:`, e.message);
+        const msg = e.message || "Errore Gemini";
+        console.error(`Tentativo Gemini ${i + 1} fallito:`, msg);
 
-        lastRetrySeconds = Math.max(getRetrySeconds(e.message), 16);
+        lastRetrySeconds = Math.max(getRetrySeconds(msg), 16);
+
+        if (!isTemporaryGeminiError(msg) && i === 0) {
+          break;
+        }
 
         if (i === 2) {
-          return res.status(503).json({
-            error:
-              "Gemini è momentaneamente occupato o hai raggiunto il limite temporaneo di richieste. Attendi qualche secondo e riprova.",
-            retryAfter: lastRetrySeconds
+          console.warn("Gemini non disponibile. Uso fallback locale.");
+
+          const fallbackGifts = generateFallbackGifts(req.body);
+          cache.set(cacheKey, fallbackGifts);
+
+          return res.json({
+            gifts: fallbackGifts,
+            fromCache: false,
+            fallback: true,
+            warning:
+              "Gemini momentaneamente non disponibile. Sono state generate idee fallback."
           });
         }
 
@@ -237,12 +423,23 @@ Formato esatto:
     }
 
     if (!data) {
-      return res.status(500).json({
-        error: "Nessuna risposta ricevuta da Gemini"
+      console.warn("Nessuna risposta Gemini. Uso fallback locale.");
+
+      const fallbackGifts = generateFallbackGifts(req.body);
+      cache.set(cacheKey, fallbackGifts);
+
+      return res.json({
+        gifts: fallbackGifts,
+        fromCache: false,
+        fallback: true,
+        warning: "Nessuna risposta Gemini. Sono state generate idee fallback."
       });
     }
 
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const text =
+      data.candidates?.[0]?.content?.parts?.[0]?.text ||
+      data.candidates?.[0]?.content?.parts?.map(p => p.text).join("\n") ||
+      "";
 
     console.log("========== RISPOSTA GEMINI ==========");
     console.log(text);
@@ -252,14 +449,15 @@ Formato esatto:
 
     try {
       gifts = extractJsonArray(text);
-      gifts = validateGifts(gifts);
+      gifts = validateGifts(gifts, req.body);
+
     } catch (e) {
       console.error("Errore parsing JSON Gemini:", e.message);
+      console.error("Raw Gemini:", cleanGeminiText(text).slice(0, 500));
 
-      return res.status(500).json({
-        error: "Risposta Gemini non valida",
-        raw: cleanGeminiText(text).slice(0, 500)
-      });
+      console.warn("Uso fallback locale per evitare errore app.");
+
+      gifts = generateFallbackGifts(req.body);
     }
 
     cache.set(cacheKey, gifts);
@@ -271,10 +469,15 @@ Formato esatto:
     });
 
   } catch (e) {
-    console.error(e);
+    console.error("Errore backend:", e);
 
-    return res.status(500).json({
-      error: e.message || "Errore backend"
+    const fallbackGifts = generateFallbackGifts(req.body || {});
+
+    return res.json({
+      gifts: fallbackGifts,
+      fromCache: false,
+      fallback: true,
+      warning: e.message || "Errore backend gestito con fallback"
     });
   }
 });
