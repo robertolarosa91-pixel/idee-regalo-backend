@@ -187,9 +187,11 @@ function generateFallbackGifts(data) {
   } = data;
 
   const finalOccasion = occasion === "✨ Altro" ? customOccasion : occasion;
-  const personalityText = Array.isArray(personality) && personality.length
-    ? personality.join(", ")
-    : "personalità non specificata";
+
+  const personalityText =
+    Array.isArray(personality) && personality.length
+      ? personality.join(", ")
+      : "personalità non specificata";
 
   const interestText = hobbies || "interessi generici";
   const typeText = giftType || "regalo utile e piacevole";
@@ -214,12 +216,12 @@ function generateFallbackGifts(data) {
     {
       name: "Set relax e benessere",
       category: "benessere",
-      searchQuery: `set relax benessere regalo`
+      searchQuery: "set relax benessere regalo"
     },
     {
       name: "Gadget tecnologico pratico",
       category: "tecnologia",
-      searchQuery: `gadget tecnologico utile regalo`
+      searchQuery: "gadget tecnologico utile regalo"
     },
     {
       name: "Libro o guida tematica",
@@ -229,12 +231,12 @@ function generateFallbackGifts(data) {
     {
       name: "Oggetto decorativo elegante",
       category: "casa",
-      searchQuery: `oggetto decorativo elegante regalo`
+      searchQuery: "oggetto decorativo elegante regalo"
     },
     {
       name: "Box gourmet selezionato",
       category: "cucina",
-      searchQuery: `box gourmet regalo`
+      searchQuery: "box gourmet regalo"
     },
     {
       name: "Accessorio per hobby",
@@ -248,7 +250,7 @@ function generateFallbackGifts(data) {
     }
   ];
 
-  return base.map((item, index) => ({
+  return base.map(item => ({
     name: item.name,
     description:
       `Adatto per ${finalOccasion || "questa occasione"}: pensato per ${relationship || "questa persona"}, età ${age || "non specificata"}, con profilo ${personalityText}. È un ${typeText} compatibile con ${budgetText}.`,
@@ -294,16 +296,18 @@ async function callGemini(prompt) {
     }
 
     if (data.error) {
-      const msg = data.error.message || "Errore Gemini";
-      throw new Error(msg);
+      throw new Error(data.error.message || "Errore Gemini");
     }
 
     return data;
-
   } finally {
     clearTimeout(timeout);
   }
 }
+
+/* ─────────────────────────────────────────────
+   PAGINA PRINCIPALE BACKEND
+───────────────────────────────────────────── */
 
 app.get("/", (req, res) => {
   res.json({
@@ -312,6 +316,132 @@ app.get("/", (req, res) => {
     model: GEMINI_MODEL
   });
 });
+
+/* ─────────────────────────────────────────────
+   PAGINA PUBBLICA ELIMINAZIONE ACCOUNT
+   Da inserire nella Google Play Console
+───────────────────────────────────────────── */
+
+app.get("/delete-account", (req, res) => {
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+
+  res.send(`
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Eliminazione account - Idee Regalo</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 32px 20px;
+      line-height: 1.6;
+      color: #1a1a1a;
+      background: #f7f7fb;
+    }
+
+    .card {
+      background: #ffffff;
+      border-radius: 16px;
+      padding: 28px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+    }
+
+    h1 {
+      color: #e94560;
+      margin-top: 0;
+    }
+
+    h2 {
+      margin-top: 28px;
+    }
+
+    ul,
+    ol {
+      padding-left: 22px;
+    }
+
+    .note {
+      background: #fff3f5;
+      border-left: 4px solid #e94560;
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="card">
+    <h1>Eliminazione account - Idee Regalo</h1>
+
+    <p>
+      Questa pagina spiega come eliminare il proprio account nell'app
+      <strong>Idee Regalo</strong>.
+    </p>
+
+    <h2>Come eliminare l'account</h2>
+
+    <ol>
+      <li>Apri l'app <strong>Idee Regalo</strong>.</li>
+      <li>Accedi con il tuo account.</li>
+      <li>Apri la sezione <strong>Account</strong>.</li>
+      <li>Seleziona <strong>Elimina account</strong>.</li>
+      <li>Inserisci la password e conferma scrivendo <strong>ELIMINA</strong>.</li>
+    </ol>
+
+    <h2>Dati eliminati</h2>
+
+    <p>Quando elimini l'account, vengono eliminati:</p>
+
+    <ul>
+      <li>Account Firebase Authentication;</li>
+      <li>Email associata all'account;</li>
+      <li>Nome profilo;</li>
+      <li>Cronologia delle ricerche salvate;</li>
+      <li>Regali salvati nei preferiti;</li>
+      <li>Dati personali salvati nel database dell'app.</li>
+    </ul>
+
+    <h2>Tempi di eliminazione</h2>
+
+    <p>
+      L'eliminazione viene avviata immediatamente dopo la conferma nell'app.
+      I dati associati all'account vengono rimossi definitivamente entro un massimo di 90 giorni,
+      salvo eventuali obblighi legali o tecnici di conservazione.
+    </p>
+
+    <h2>Dati eventualmente conservati</h2>
+
+    <p>
+      Alcuni dati tecnici, di sicurezza, diagnostica o prevenzione frodi possono essere trattati
+      temporaneamente da servizi di terze parti come Google Firebase, Google Play e Google AdMob,
+      secondo le rispettive informative sulla privacy.
+    </p>
+
+    <h2>Assistenza</h2>
+
+    <p>
+      Se non riesci ad accedere all'app o hai bisogno di assistenza per eliminare l'account,
+      puoi contattare lo sviluppatore tramite la pagina dell'app su Google Play.
+    </p>
+
+    <div class="note">
+      L'eliminazione dell'account è definitiva e non può essere annullata.
+    </div>
+  </div>
+</body>
+</html>
+  `);
+});
+
+/* ─────────────────────────────────────────────
+   GENERAZIONE IDEE REGALO
+───────────────────────────────────────────── */
 
 app.post("/generate-gifts", async (req, res) => {
   try {
@@ -391,7 +521,6 @@ ESEMPIO FORMATO:
       try {
         data = await callGemini(prompt);
         break;
-
       } catch (e) {
         const msg = e.message || "Errore Gemini";
         console.error(`Tentativo Gemini ${i + 1} fallito:`, msg);
@@ -450,7 +579,6 @@ ESEMPIO FORMATO:
     try {
       gifts = extractJsonArray(text);
       gifts = validateGifts(gifts, req.body);
-
     } catch (e) {
       console.error("Errore parsing JSON Gemini:", e.message);
       console.error("Raw Gemini:", cleanGeminiText(text).slice(0, 500));
@@ -467,7 +595,6 @@ ESEMPIO FORMATO:
       gifts,
       fromCache: false
     });
-
   } catch (e) {
     console.error("Errore backend:", e);
 
