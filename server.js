@@ -30,7 +30,8 @@ function buildCacheKey(data) {
     personality: data.personality,
     hobbies: data.hobbies,
     giftType: data.giftType,
-    budget: data.budget
+    budget: data.budget,
+    refreshKey: data.refreshKey || 0
   });
 }
 
