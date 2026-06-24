@@ -31,7 +31,7 @@ function buildCacheKey(data) {
     hobbies: data.hobbies,
     giftType: data.giftType,
     budget: data.budget,
-    refreshKey: data.refreshKey || 0
+    refreshKey: Number(data.refreshKey || 0)
   });
 }
 
@@ -76,8 +76,8 @@ function extractJsonArray(text) {
   const cleaned = cleanGeminiText(text);
 
   const direct = tryParseJson(cleaned);
-  if (Array.isArray(direct)) return direct;
 
+  if (Array.isArray(direct)) return direct;
   if (direct && Array.isArray(direct.gifts)) return direct.gifts;
   if (direct && Array.isArray(direct.ideas)) return direct.ideas;
   if (direct && Array.isArray(direct.regali)) return direct.regali;
@@ -164,7 +164,8 @@ function validateGifts(gifts, fallbackData = {}) {
           description: "Alternativa coerente con il profilo indicato.",
           price: fallbackData.budget || "Prezzo variabile",
           category: "varie",
-          searchQuery: `regalo ${fallbackData.relationship || ""} ${fallbackData.hobbies || ""}`.trim()
+          searchQuery:
+            `regalo ${fallbackData.relationship || ""} ${fallbackData.hobbies || ""}`.trim()
         },
         normalized.length,
         fallbackData
@@ -184,10 +185,12 @@ function generateFallbackGifts(data) {
     personality,
     hobbies,
     giftType,
-    budget
+    budget,
+    refreshKey = 0
   } = data;
 
-  const finalOccasion = occasion === "✨ Altro" ? customOccasion : occasion;
+  const finalOccasion =
+    occasion === "✨ Altro" ? customOccasion : occasion;
 
   const personalityText =
     Array.isArray(personality) && personality.length
@@ -198,66 +201,54 @@ function generateFallbackGifts(data) {
   const typeText = giftType || "regalo utile e piacevole";
   const budgetText = budget || "budget variabile";
 
-  const base = [
-    {
-      name: "Kit regalo personalizzato",
-      category: "casa",
-      searchQuery: `kit regalo personalizzato ${interestText}`
-    },
-    {
-      name: "Esperienza da vivere insieme",
-      category: "esperienza",
-      searchQuery: `esperienza regalo ${relationship} ${finalOccasion}`
-    },
-    {
-      name: "Accessorio utile premium",
-      category: "varie",
-      searchQuery: `accessorio utile regalo ${interestText}`
-    },
-    {
-      name: "Set relax e benessere",
-      category: "benessere",
-      searchQuery: "set relax benessere regalo"
-    },
-    {
-      name: "Gadget tecnologico pratico",
-      category: "tecnologia",
-      searchQuery: "gadget tecnologico utile regalo"
-    },
-    {
-      name: "Libro o guida tematica",
-      category: "libri",
-      searchQuery: `libro regalo ${interestText}`
-    },
-    {
-      name: "Oggetto decorativo elegante",
-      category: "casa",
-      searchQuery: "oggetto decorativo elegante regalo"
-    },
-    {
-      name: "Box gourmet selezionato",
-      category: "cucina",
-      searchQuery: "box gourmet regalo"
-    },
-    {
-      name: "Accessorio per hobby",
-      category: "hobby",
-      searchQuery: `accessorio hobby ${interestText} regalo`
-    },
-    {
-      name: "Regalo sorpresa creativo",
-      category: "arte",
-      searchQuery: `regalo creativo originale ${interestText}`
-    }
+  const variants = [
+    [
+      ["Kit regalo personalizzato", "casa", `kit regalo personalizzato ${interestText}`],
+      ["Esperienza da vivere insieme", "esperienza", `esperienza regalo ${relationship} ${finalOccasion}`],
+      ["Accessorio utile premium", "varie", `accessorio utile regalo ${interestText}`],
+      ["Set relax e benessere", "benessere", "set relax benessere regalo"],
+      ["Gadget tecnologico pratico", "tecnologia", "gadget tecnologico utile regalo"],
+      ["Libro o guida tematica", "libri", `libro regalo ${interestText}`],
+      ["Oggetto decorativo elegante", "casa", "oggetto decorativo elegante regalo"],
+      ["Box gourmet selezionato", "cucina", "box gourmet regalo"],
+      ["Accessorio per hobby", "hobby", `accessorio hobby ${interestText} regalo`],
+      ["Regalo sorpresa creativo", "arte", `regalo creativo originale ${interestText}`]
+    ],
+    [
+      ["Abbonamento o box mensile", "abbonamenti", `box mensile regalo ${interestText}`],
+      ["Corso online o workshop", "formazione", `corso online regalo ${interestText}`],
+      ["Accessorio da viaggio", "viaggi", "accessorio viaggio utile regalo"],
+      ["Set per la scrivania", "ufficio", "accessori scrivania design regalo"],
+      ["Prodotto artigianale italiano", "artigianato", "regalo artigianale italiano originale"],
+      ["Gioco da tavolo moderno", "giochi", "gioco da tavolo moderno regalo"],
+      ["Kit per attività creativa", "creatività", `kit creativo ${interestText} regalo`],
+      ["Esperienza gastronomica", "gourmet", "esperienza degustazione regalo"],
+      ["Accessorio smart per casa", "smart home", "gadget smart home regalo"],
+      ["Prodotto personalizzato con nome", "personalizzato", "regalo personalizzato nome"]
+    ],
+    [
+      ["Lampada decorativa particolare", "casa", "lampada decorativa originale regalo"],
+      ["Accessorio fotografico", "fotografia", "accessorio fotografia regalo"],
+      ["Set fitness o sportivo", "sport", "accessorio fitness sport regalo"],
+      ["Profumo o set beauty", "beauty", "set beauty profumo regalo"],
+      ["Zaino o borsa pratica", "moda", "zaino borsa pratica regalo"],
+      ["Cuffie o speaker Bluetooth", "audio", "cuffie bluetooth speaker regalo"],
+      ["Pianta o kit giardinaggio", "natura", "kit giardinaggio regalo"],
+      ["Poster o stampa artistica", "arte", "poster stampa artistica regalo"],
+      ["Set cucina speciale", "cucina", "accessori cucina originali regalo"],
+      ["Gadget divertente e insolito", "divertente", "gadget divertente insolito regalo"]
+    ]
   ];
 
-  return base.map(item => ({
-    name: item.name,
+  const selectedVariant = variants[Number(refreshKey) % variants.length];
+
+  return selectedVariant.map(([name, category, searchQuery]) => ({
+    name,
     description:
       `Adatto per ${finalOccasion || "questa occasione"}: pensato per ${relationship || "questa persona"}, età ${age || "non specificata"}, con profilo ${personalityText}. È un ${typeText} compatibile con ${budgetText}.`,
     price: budgetText,
-    category: item.category,
-    searchQuery: item.searchQuery
+    category,
+    searchQuery
   }));
 }
 
@@ -279,7 +270,8 @@ async function callGemini(prompt) {
           }
         ],
         generationConfig: {
-          temperature: 0.4,
+          temperature: 0.8,
+          topP: 0.95,
           maxOutputTokens: 4096,
           responseMimeType: "application/json"
         }
@@ -320,7 +312,6 @@ app.get("/", (req, res) => {
 
 /* ─────────────────────────────────────────────
    PAGINA PUBBLICA ELIMINAZIONE ACCOUNT
-   Da inserire nella Google Play Console
 ───────────────────────────────────────────── */
 
 app.get("/delete-account", (req, res) => {
@@ -471,7 +462,8 @@ app.post("/generate-gifts", async (req, res) => {
       personality,
       hobbies,
       giftType,
-      budget
+      budget,
+      refreshKey = 0
     } = req.body;
 
     const finalOccasion =
@@ -488,6 +480,7 @@ Personalità: ${(personality || []).join(", ") || "non specificata"}
 Hobby/interessi: ${hobbies || "non specificati"}
 Tipo regalo preferito: ${giftType || "non specificato"}
 Budget: ${budget || "non specificato"}
+Numero generazione alternativa: ${refreshKey}
 
 REGOLE OBBLIGATORIE:
 Rispondi SOLO con un array JSON valido.
@@ -498,6 +491,14 @@ Il primo carattere deve essere [
 L'ultimo carattere deve essere ]
 Usa solo doppi apici.
 Genera esattamente 10 oggetti.
+
+Se Numero generazione alternativa è maggiore di 0:
+- genera idee sensibilmente diverse, meno ovvie e non ripetitive;
+- evita gli stessi prodotti, categorie e query Amazon più comuni delle generazioni precedenti;
+- varia categoria, stile, utilità, originalità, brand suggeribili e tipo di esperienza;
+- non usare sempre cuffie, candele, tazze, gadget generici, box regalo o set relax;
+- mantieni comunque tutte le idee realistiche, acquistabili o prenotabili in Italia.
+
 Ogni oggetto deve avere esattamente queste proprietà:
 "name", "description", "price", "category", "searchQuery".
 
@@ -524,6 +525,7 @@ ESEMPIO FORMATO:
         break;
       } catch (e) {
         const msg = e.message || "Errore Gemini";
+
         console.error(`Tentativo Gemini ${i + 1} fallito:`, msg);
 
         lastRetrySeconds = Math.max(getRetrySeconds(msg), 16);
@@ -536,6 +538,7 @@ ESEMPIO FORMATO:
           console.warn("Gemini non disponibile. Uso fallback locale.");
 
           const fallbackGifts = generateFallbackGifts(req.body);
+
           cache.set(cacheKey, fallbackGifts);
 
           return res.json({
@@ -547,7 +550,10 @@ ESEMPIO FORMATO:
           });
         }
 
-        console.log(`Attendo ${lastRetrySeconds} secondi prima di riprovare...`);
+        console.log(
+          `Attendo ${lastRetrySeconds} secondi prima di riprovare...`
+        );
+
         await wait(lastRetrySeconds * 1000);
       }
     }
@@ -556,13 +562,15 @@ ESEMPIO FORMATO:
       console.warn("Nessuna risposta Gemini. Uso fallback locale.");
 
       const fallbackGifts = generateFallbackGifts(req.body);
+
       cache.set(cacheKey, fallbackGifts);
 
       return res.json({
         gifts: fallbackGifts,
         fromCache: false,
         fallback: true,
-        warning: "Nessuna risposta Gemini. Sono state generate idee fallback."
+        warning:
+          "Nessuna risposta Gemini. Sono state generate idee fallback."
       });
     }
 
@@ -590,12 +598,16 @@ ESEMPIO FORMATO:
     }
 
     cache.set(cacheKey, gifts);
-    console.log("💾 Risposta salvata in cache");
+
+    console.log(
+      `💾 Risposta salvata in cache — generazione alternativa ${refreshKey}`
+    );
 
     return res.json({
       gifts,
       fromCache: false
     });
+
   } catch (e) {
     console.error("Errore backend:", e);
 
