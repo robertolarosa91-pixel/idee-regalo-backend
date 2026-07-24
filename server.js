@@ -314,6 +314,21 @@ app.get("/", (req, res) => {
    PAGINA PUBBLICA ELIMINAZIONE ACCOUNT
 ───────────────────────────────────────────── */
 
+/* ─────────────────────────────────────────────
+   ADMOB APP-ADS.TXT
+───────────────────────────────────────────── */
+
+app.get("/app-ads.txt", (req, res) => {
+  res
+    .status(200)
+    .type("text/plain")
+    .send("google.com, pub-3991891209567410, DIRECT, f08c47fec0942fa0\n");
+});
+
+/* ─────────────────────────────────────────────
+   PAGINA PUBBLICA ELIMINAZIONE ACCOUNT
+───────────────────────────────────────────── */
+
 app.get("/delete-account", (req, res) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
 
